@@ -1,0 +1,98 @@
+---
+title: "SVM and PCA"
+author: "Yulu Jin, Kaiming Fu"
+
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Reason for applying SVM
+As we know, linear regression explores the linear relationship between predictors and the corresponding variable($y$ here). However, for the data collected in the real world, the relationship between predictors and the response is always quite complex and non-linear. The bank data for this project contains 20 variables as predictors and it's trivial that the relationship between those variables and $y$ is non-linear and hard to explore. 
+
+Thus, supporting vector machines is proposed to characterize such a complex non-linear relationship. To solve this problem, the input data is mapped into a higher dimensional space. By applying Kernel functions, a nonlinear problem in the lower dimensional space has been transferred into a linear one and thus an optimal separating hyper-plane can be learned. Actually, the hyper-plane is a boundary plane to perform the classification task. 
+
+## SVM full model
+We use all the 20 variables to predict the response $y$ by the SVM algorithm. Since the SVM model can only deal with numerical data, first we convert all characteristic variables into numerical ones. Then we seperate the data into training and testing set and the training set accounts for 70\%. 
+
+Since there is randomness in the training set generation part and also in the SVM training part, we apply set.seed() to fix the result. After training, the prediction accuracy on the test set is 90.928\%. 
+```{r include=FALSE}
+bank <- read.csv("/Users/yulujin/Dropbox/STA141/bank-additional-full.csv", sep=";")
+head(bank)
+library(dplyr)
+library(factoextra)
+library("e1071")
+bank = na.omit(bank)
+# data preparation
+bank <- bank %>% mutate(marital = ifelse(as.character(marital) =="married", 1, 0))
+bank <- bank %>% mutate(housing = ifelse(as.character(housing) =="yes", 1, 0))
+bank <- bank %>% mutate(loan = ifelse(as.character(loan) =="yes", 1, 0))
+bank <- bank %>% mutate(y = ifelse(as.character(y) =="yes", 1, 0))
+bank$job <- as.numeric(factor(bank$job, levels = as.character(unique(bank$job))))
+bank$education <- as.numeric(factor(bank$education, levels = as.character(unique(bank$education))))
+bank$default <- as.numeric(factor(bank$default, levels = as.character(unique(bank$default))))
+bank$contact <- as.numeric(factor(bank$contact, levels = as.character(unique(bank$contact))))
+bank$month <- as.numeric(factor(bank$month, levels = as.character(unique(bank$month))))
+bank$day_of_week <- as.numeric(factor(bank$day_of_week, levels = as.character(unique(bank$day_of_week))))
+bank$poutcome <- as.numeric(factor(bank$poutcome, levels = as.character(unique(bank$poutcome))))
+
+# train&test set
+head(bank)
+set.seed(1)
+dataset.size = floor(nrow(bank)*0.70)
+index <- sample(1:nrow(bank),size= dataset.size)
+training <- bank[index,]
+test <- bank[-index,]
+dim(test)
+```
+
+```{r echo=FALSE}
+set.seed(2)
+# SVM
+SVM <- svm(y~age+job+marital+education+housing+loan+contact+month+day_of_week+duration
+           +campaign+pdays+previous+poutcome+emp.var.rate+cons.price.idx+cons.conf.idx
+           +euribor3m+nr.employed+default, data = training, importance= T,type="C-classification")
+SVM
+result <- data.frame(test$y, predict(SVM,test[,1:20],type = "response"))
+tab <- table(result)
+tab
+(10725+511)/(12357)
+```
+
+
+## Principal component analysis
+Principal component analysis(PCA) is widely used for dimensionality reduction. PCA computes the principal components and then the data points can be projected onto the first few principal components to obtain lower-dimensional data while preserving as much of the data's variation as possible. Moreover, it also eexplores the data and tells us the most important variables in the dataset. 
+
+We perform PCA on the dataset. By the summary result listed below, we have that the first 13 principal components give a cumulative proportion of 0.89615, which well represent the data.  
+```{r echo=FALSE}
+library(factoextra)
+pca <- prcomp(bank[,-21], center = TRUE,scale. = TRUE)
+summary(pca)
+```
+The screen plot of principal components is shown below. The y-axis explains the percentage of explained variance for each principal component and we see that the first 8 principal components have a percentage over 5%\. 
+```{r echo=FALSE}
+fviz_eig(pca)
+```
+
+By calculating the eigenvalue corresponding to each principal component, we have the following result. We would eliminate any variable that didn’t have an eigenvalue greater than 1. The idea behind this is that if the eigenvalue is less than 1, then the component accounts for less variance than a single variable contributed. Thus, we view the first 8 principal components as important ones. 
+```{r echo=FALSE}
+pca$sdev^2
+```
+
+By summarizing the first 8 principal components, we see that several variables are less significant than others, such as "contact", "day_of_week", "month", since they contribute little in the first 8 principal components. We then drop those variables and train the SVM model based on the same training and testing set. The test accuracy is then 90.807\%. Thus, there is no big difference between this model and the previous one trained by all the variables, which indicates that the dropped variables do not have much effect in the prediction process. 
+```{r echo=FALSE}
+set.seed(3)
+SVM <- svm(y~age+job+marital+education+housing+loan+duration
+           +campaign+pdays+previous+poutcome+emp.var.rate+cons.price.idx+cons.conf.idx
+           +euribor3m+nr.employed+default, data = training, importance= T,type="C-classification")
+SVM
+result_n <- data.frame(test$y, predict(SVM,test[,1:20],type = "response"))
+tab_n <- table(result_n)
+tab_n
+(10730+491)/(12357)
+```
+

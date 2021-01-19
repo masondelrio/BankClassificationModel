@@ -1,0 +1,272 @@
+---
+title: "Lasso Regularization , Logistic Regression, and Random Forest"
+author: "Mason Del Rio"
+date: "11/20/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Logistic Regression
+
+We are working with the "bank-additional-full.csv" dataset. 
+In order to select which features matter the most, we will use Lasso Regularization on our Logistic Regression Model. 
+
+The equation for Logistic Regression is :
+
+$P=\frac{e^{{\beta}_0+{\beta}_1X}}{1+e^{{\beta}_0+{\beta}_1X}}$
+
+Where P is our target variable which varies from 0 to 1, and the ${\beta}_0$, ${\beta}_1$, and $X$ are the independent Variables. 
+
+Or similarly, $log(\frac{p_i}{1-p_i}) = {\beta}_0 + {\beta}_1X_1 + {\beta}_2X_2...{\beta}_kX_k$
+Where $log(\frac{p_i}{1-p_i})$ is the Log Likelihood. 
+
+
+We first index the data into a Training Set and a Testing Set using the sample function.
+```{r}
+library(glmnet)
+library(tidyr)
+library(ggplot2)
+library(data.table)
+library(gbm)   
+library(class)
+library(glmnet)
+
+set.seed(1)
+#Load Data
+setwd("/Users/masondelrio/Desktop/Fall 2020 Files/Fall 2020 Handouts/STA 141A/STA 141A Datasets")
+bank.data = read.csv("bank-additional-full.csv", sep = ";")
+index = sample(1:nrow(bank.data), 0.7*nrow(bank.data))
+train = bank.data[index,] 
+test = bank.data[-index,] 
+dim(train)
+dim(test)
+```
+As we can see, 70% of our data was split for indexing to our training and testing data. 
+
+28831/41188 = 0.69999854
+
+We now have our data split up, randomly, most importantly, and we can fit our logistic model to the training data using the glm() function.
+
+```{r}
+glm_model <- glm(y~., family = binomial, data = train)
+glm_model
+
+```
+In order to see how accurate our model is, we need to set up a confusion matrix.
+We use the test data that was separate from the training model in order to simulate some form of real world implementation and feed it into the predict.glm() function. 
+```{r}
+glm_prob <- predict.glm(glm_model, test, type = "response")
+glm_predict<- rep("no", nrow(test))
+glm_predict[glm_prob>.5] <- "yes"
+table(pred=glm_predict, true = test$y)
+mean(glm_predict == test$y)
+
+
+```
+The Logistic Regression model works fairly well for the test data, with 91.3% accuracy. This is a model that works well with the data that was randomized and set once, for training and testing purposes. However, we must use K-Fold Cross Validation in order to test the model's ability to predict outside data not used in the process of creating this model. 
+
+## Logistic Regression with K-Fold Cross Validation
+
+We will use the caret library to implement cross validation.
+Below, we will again create a training and testing set for the data. However, this time the K-Fold Cross Validation will randomly select portions of the training data 10 times. 
+```{r}
+bank = read.csv("bank-additional-full.csv", sep = ";")
+#Install caret function
+
+library(caret)
+require(dplyr)
+
+#Partition Data: Create index matrix of selected values
+set.seed(1)
+
+
+# Create index matrix
+bank = na.omit(bank)
+# data preparation
+bank <- bank %>% mutate(marital = ifelse(as.character(marital) =="married", 1, 0))
+bank <- bank %>% mutate(housing = ifelse(as.character(housing) =="yes", 1, 0))
+bank <- bank %>% mutate(loan = ifelse(as.character(loan) =="yes", 1, 0))
+bank <- bank %>% mutate(y = ifelse(as.character(y) =="yes", 1, 0))
+bank$job <- as.numeric(factor(bank$job, levels = as.character(unique(bank$job))))
+bank$education <- as.numeric(factor(bank$education, levels = as.character(unique(bank$education))))
+bank$default <- as.numeric(factor(bank$default, levels = as.character(unique(bank$default))))
+bank$contact <- as.numeric(factor(bank$contact, levels = as.character(unique(bank$contact))))
+bank$month <- as.numeric(factor(bank$month, levels = as.character(unique(bank$month))))
+bank$day_of_week <- as.numeric(factor(bank$day_of_week, levels = as.character(unique(bank$day_of_week))))
+bank$poutcome <- as.numeric(factor(bank$poutcome, levels = as.character(unique(bank$poutcome))))
+
+#Don't want list, we get a matrix. 
+index <- createDataPartition(bank$y, p = .7, list = FALSE, times = 1)
+
+#Convert Dataframe bank to actual df
+bank <- as.data.frame(bank)
+# create train dataframe and test dataframe
+train_df <- bank[index,]
+test_df <- bank[-index,]
+
+#Relabel values of y to factor (1 = yes, 0 = no), because Logistic Regression needs factors for the outcome
+train_df$y[train_df$y == 1] <- "yes"
+train_df$y[train_df$y == 0] <- "no"
+
+test_df$y[test_df$y == 1] <- "yes"
+test_df$y[test_df$y == 0] <- "no"
+
+#Convert outcome variable to type factor with function as.factor()
+train_df$y <- as.factor(train_df$y)
+test_df$y <- as.factor(test_df$y)
+
+#Specify type of method, in this case cross validation, and number of folds will be 10. 
+control <- trainControl(method = "cv", number = 10, savePredictions = "all",
+                        classProbs = TRUE)
+#Set random seed for folds
+set.seed(1)
+
+#Specify logistic regression model with method 'glm'. 
+
+model1 <- train(y ~., data = train_df, method = 'glm', family = binomial,
+                trControl = control)
+
+```
+
+After the cross validation is done, we need to see how well our improved model performs on test data. We use the predict() function to store the predictions generated by our model in predictions.
+
+```{r}
+#Predict outcome using trained model with test data.
+predictions <- predict(model1, newdata = test_df)
+```
+
+Now, we use the confusionMatrix() function from the caret package to generate our accuracy.
+```{r}
+confusionMatrix(data = predictions, test_df$y)
+
+```
+
+
+As we can see, the Logisitic Regression Model with and without cross validation has ~90-91% accuracy, but we need to add some form of bias because this model is overfit to this certain dataset. If we wanted to generalize this data to other banks in Portugal, we would need to compensate for the overfittness of this model to this dataset. 
+
+This is where Lasso Regularization comes in.
+
+## Lasso Regularization
+
+
+Lasso Regularization for Logistic Regression is done by minimizing this Cost Function:
+
+
+$$J(\Theta) = \frac{1}{m}\Sigma^m_{i=1}[-y^{i}log(h_\Theta(x^{i}))-(1-y^{i})log(1-(h_\Theta(x^i))]+\frac{\lambda}{2m}\Sigma^n_{j=1}|\Theta_j|$$
+
+
+
+First, we build a matrix for all the features of the dataset, which we'll call x, and a vector for the response variable, we'll call y, which consists of 1's and 0's for Yes and No.
+
+```{r}
+x <- model.matrix(y~., train)
+
+y<- ifelse(train$y == "yes", 1,0)
+
+```
+
+In Lasso Regularization, there is a tuning paramater called Lambda in which we need to find the minimal value of, through cross validation. The minimum lambda will give us the most parsimonious model, but it will also generate a model which generally overfits. So we will pick the lambda which falls one standard error away from the minimum value in order to choose the simplest model without overfitting.
+
+
+``` {r}
+#Cross Validation for lambda parameter
+cv.out <- cv.glmnet(x,y,alpha=1, family="binomial", type.measure = "mse")
+#Show log plot
+plot(cv.out)
+#Minimum lambda
+lambda_min <- cv.out$lambda.min
+#Lambda value that gives simplest model but also lies within one standard error of the optimal value of lambda.
+lambda_1se <- cv.out$lambda.1se
+
+
+```
+
+From this graph, we see that the lambda value between -8 and -7 will give us the most minimal model, but one standard error away from that value will give us the lambda value near -5, which will give us the minimal model with the least overfitting. 
+
+```{r}
+lambda_min 
+#Lambda value that gives simplest model but also lies within one standard error of the optimal value of lambda.
+lambda_1se 
+
+```
+
+
+```{r}
+#Show coefficients of lassomodel
+coef(cv.out, s = lambda_1se)
+
+```
+From the list of coefficients for the lasso model, we see that it selected 12 features that were the most significant on the model.
+
+We now use our test data to see how accurate our model is.
+```{r}
+x_test <- model.matrix(y~., test)
+lasso_prob <- predict(cv.out, newx = x_test, s = lambda_1se, type = "response")
+lasso_predict<- rep("no", nrow(test))
+lasso_predict[lasso_prob>.5]<- "yes"
+#confusion matrix
+table(pred= lasso_predict, true = test$y)
+
+mean(lasso_predict == test$y)
+
+
+
+```
+
+As we see, the accuracy of this model has decreased because we introduced some bias with the Lasso Regularization method. In order for this model to be applied to other data sets, we will sacrifice accuracy for the sake of not overfitting the model.
+
+
+
+## Random Forest
+
+
+Another method we can use on this data is the Random Forest Method. 
+
+Using Random Forest gives us a vast amount of decision trees in which a model is made from the culmination of them. Using the ranodmForest library package, we can create the model in R. We first subset our data just like we previously did for the Logistic Regression model, with 70% of the data lumped into a Training Set, and 30% of our data lumped into the Test set. 
+
+```{r}
+library(randomForest)   # random forest methodology
+bank.data = na.omit(bank.data)
+bank.data$y = as.factor(bank.data$y)
+dataset.size = floor(nrow(bank.data)*0.70)
+index <- sample(1:nrow(bank.data),size= dataset.size)
+training <- bank.data[index,]
+test <- bank.data[-index,]
+```
+We then use the function "randomForest()" and train it with the previously created training set, which will create our random forest model to use for predictions. 
+
+```{r}
+rf <- randomForest(y~., data = training, importance = T)
+
+```
+
+After this is made, we can plot to see how many trees are necessary for our model
+
+```{r}
+plot(rf)
+```
+
+This graph shows us that around 100-200 trees is where our model has minimum error
+
+Now, let's confirm the variables of importance for the dataset using the varImpPlot() function
+
+```{r}
+varImpPlot(rf)
+```
+As we can see, duration ranks number 1 most important variable in this dataset, which from eyeballing the data, we see the strong relationship between a phone calls duration and the result of a term deposit being made. This graph confirms this notion. 
+
+Now, let's see how accurate this model is after feeding the model our test data. We will use the caret package to create the confusion matrix.
+
+```{r}
+library(caret)
+rftest <- predict(rf, newdata = test)
+confusionMatrix(data = rftest, test$y)
+
+```
+
+From this confusion matrix, we can see that the accuracy was at 91.34%, and the Kappa value was at .52, which makes for a moderate model. This model gives us around the same accuracy as the logistic regression model. 

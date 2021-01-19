@@ -1,0 +1,131 @@
+---
+title: "Logistic Regression, Lasso Regularization"
+author: "Mason Del Rio"
+date: "11/20/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+We are working with the "bank-full.csv" file, which will be changed to "bank-additional-full.csv
+In order to select which features matter the most, we will use Lasso Regularization on our Logistic Regression Model. 
+
+We first index the data into a Training Set and a Testing Set using the sample function.
+```{r}
+library(glmnet)
+library(tidyr)
+library(ggplot2)
+library(data.table)
+library(gbm)   
+library(class)
+library(glmnet)
+
+set.seed(1)
+#Load Data
+setwd("/Users/masondelrio/Desktop/Fall 2020 Files/Fall 2020 Handouts/STA 141A/STA 141A Datasets")
+bank.data = read.csv("bank-additional-full.csv", sep = ";")
+index = sample(1:nrow(bank.data), 0.7*nrow(bank.data))
+train = bank.data[index,] 
+test = bank.data[-index,] 
+dim(train)
+dim(test)
+```
+As we can see, 70% of our data was split for indexing to our training and testing data. 
+
+28831/41188 = 0.69999854
+
+We now have our data split up, randomly, most importantly, and we can fit our logistic model to the training data using the glm() function.
+
+```{r}
+glm_model <- glm(y~., family = binomial, data = train)
+glm_model
+
+```
+All the coefficients, without Lasso Regression, show some form of significance to the Logistic Regression Model. 
+
+In order to see how accurate our model is, we need to set up a confusion matrix.
+We use the test data that was separate from the training model in order to simulate some form of real world implementation and feed it into the predict.glm() function. 
+```{r}
+glm_prob <- predict.glm(glm_model, test, type = "response")
+glm_predict<- rep("no", nrow(test))
+glm_predict[glm_prob>.5] <- "yes"
+table(pred=glm_predict, true = test$y)
+mean(glm_predict == test$y)
+
+
+```
+The Logistic Regression model works fairly well for the test data, with 91% accuracy. This is a model that works well with the data given to us, but we need to add some form of bias because this model is overfit to this certain dataset. If we wanted to generalize this data to other banks in Portugal, we would need to compensate for the overfittness of this model to this dataset. 
+
+This is where Lasso Regularization comes in.
+
+First, we build a matrix for all the features of the dataset, which we'll call x, and a vector for the response variable, we'll call y, which consists of 1's and 0's for Yes and No.
+
+```{r}
+x <- model.matrix(y~., train)
+
+y<- ifelse(train$y == "yes", 1,0)
+
+```
+
+In Lasso Regularization, there is a tuning paramater called Lambda in which we need to find the minimal value of through cross validation. The minimum lambda will give us the most parsimonious model, but it will also generate a model which generally overfits. So we will pick the lambda which falls one standard error away from the minimum value in order to choose the simplest model without overfitting.
+
+
+``` {r}
+#Cross Validation for lambda parameter
+cv.out <- cv.glmnet(x,y,alpha=1, family="binomial", type.measure = "mse")
+#Show log plot
+plot(cv.out)
+#Minimum lambda
+lambda_min <- cv.out$lambda.min
+#Lambda value that gives simplest model but also lies within one standard error of the optimal value of lambda.
+lambda_1se <- cv.out$lambda.1se
+
+
+```
+
+From this graph, we see that the lambda value between -8 and -7 will give us the most minimal model, but one standard error away from that value will give us the lambda value near -5, which will give us the minimal model with the least overfitting. 
+
+```{r}
+lambda_min 
+#Lambda value that gives simplest model but also lies within one standard error of the optimal value of lambda.
+lambda_1se 
+
+```
+
+
+```{r}
+#Show coefficients of lassomodel
+coef(cv.out, s = lambda_1se)
+
+```
+From the list of coefficients for the lasso model, we see that it selected 12 features that were the most significant on the model.
+
+We now use our test data to see how accurate our model is.
+```{r}
+x_test <- model.matrix(y~., test)
+lasso_prob <- predict(cv.out, newx = x_test, s = lambda_1se, type = "response")
+lasso_predict<- rep("no", nrow(test))
+lasso_predict[lasso_prob>.5]<- "yes"
+#confusion matrix
+table(pred= lasso_predict, true = test$y)
+
+mean(lasso_predict == test$y)
+
+
+
+```
+As we see, the accuracy of this model has decreased because we introduced some bias with the Lasso Regularization method. In order for this model to be applied to other data sets, we will sacrifice accuracy for the sake of not overfitting the model.
+
+#Random Forest 
+
+
+Another method we can use on this data is the Random Forest Method. 
+
+
+
